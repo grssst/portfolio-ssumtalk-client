@@ -1,0 +1,605 @@
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, Image, SafeAreaView, Alert, ActivityIndicator, AppState } from 'react-native';
+import { Ionicons } from '@expo/vector-icons'; // 아이콘 사용을 위해 추가
+import { useNavigation, useRoute } from '@react-navigation/native'; // 내비게이션 사용을 위해 추가
+import Constants from 'expo-constants';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Client } from '@stomp/stompjs';
+import SockJS from 'sockjs-client';
+import 'text-encoding';
+
+// 날짜 포맷 함수들을 컴포넌트 밖으로 이동
+const formatDate = (timestamp) => {
+  const date = new Date(timestamp);
+  return new Intl.DateTimeFormat('ko-KR', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    weekday: 'long',
+    timeZone: 'Asia/Seoul', // 서울 시간대
+  }).format(date);
+};
+
+const formatTime = (timestamp) => {
+  const date = new Date(timestamp);
+  return new Intl.DateTimeFormat('ko-KR', {
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: true,
+    timeZone: 'Asia/Seoul',
+  }).format(date);
+};
+
+// MessageItem 컴포넌트를 ChattingScreen 밖으로 이동
+const MessageItem = React.memo(({ item, index, chatting, chattingLength, isEndOfData, myUserId, youData }) => {
+  const isMyMessage = String(item.senderId) === String(myUserId);
+
+  // Hooks는 항상 동일한 순서로 호출되어야 하므로 조건문 밖에서 호출
+  const dateObj = new Date(item.timestamp);
+  const formattedTime = formatTime(item.timestamp);
+
+  // 날짜 구분자 표시 조건
+  const showDateSeparator =
+    (index === chattingLength - 1 && isEndOfData === true) ||
+    (index < chattingLength - 1 && index >= 0 && formatDate(item.timestamp) !== formatDate(chatting[index + 1]?.timestamp));
+
+  return (
+    <View>
+      {/* 날짜 구분자 */}
+      {showDateSeparator && (
+        <View style={styles.dateSeparator}>
+          <Text style={styles.dateText}>{formatDate(item.timestamp)}</Text>
+        </View>
+      )}
+      <View style={[styles.messageRow, isMyMessage ? styles.myRow : styles.otherRow]}>
+        {/* 상대방의 프로필 이미지 */}
+        {!isMyMessage && (
+          <Image
+            source={require('../assets/images/profile2.png')}
+            style={styles.profileImage}
+          />
+        )}
+        <View
+          style={[
+            styles.messageContainer,
+            isMyMessage ? styles.myMessageContainer : styles.otherMessageContainer,
+          ]}
+        >
+          {/* 상대방의 닉네임 */}
+          {!isMyMessage && youData.nickname && (
+            <Text style={styles.nickname}>{youData.nickname}</Text>
+          )}
+          <View style={styles.bubbleAndTime}>
+            {/* 내 메시지의 시간은 왼쪽에 표시 */}
+            {isMyMessage && (
+              <Text style={[styles.messageTime, styles.myMessageTime]}>{formattedTime}</Text>
+            )}
+            <View
+              style={[
+                styles.messageBubble,
+                isMyMessage ? styles.myMessage : styles.otherMessage,
+              ]}
+            >
+              <Text style={styles.messageText}>{item.messageContent}</Text>
+            </View>
+            {/* 상대방 메시지의 시간은 오른쪽에 표시 */}
+            {!isMyMessage && (
+              <Text style={[styles.messageTime, styles.otherMessageTime]}>{formattedTime}</Text>
+            )}
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+});
+
+export default function ChattingScreen() {
+  const navigation = useNavigation(); // 내비게이션 훅 사용
+  const route = useRoute();
+  const [loading, setLoading] = useState(true);
+  const [chatting, setChatting] = useState([]);
+  const [inputText, setInputText] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const [roomId, setRoomId] = useState(null); // roomId를 초기값 null로 설정
+  // route.params에서 상대방 정보 가져오기
+  const youData = route.params?.youData;
+  const API_URL = Constants.expoConfig.extra.API_URL;
+  //const API_URL = "http://192.168.0.2:5000";
+  // 현재 사용자의 ID를 저장할 상태 추가
+  const [myUserId, setMyUserId] = useState(null);
+  const [lastTimestamp, setLastTimestamp] = useState(null);
+  const [isEndOfData, setIsEndOfData] = useState();
+  const [connectionStatus, setConnectionStatus] = useState('Connecting...');
+  // WebSocket 클라이언트를 저장할 ref
+  const clientRef = useRef(null);
+  const [data2, setData2] = useState(null);
+  const flatListRef = useRef(null); // FlatList 참조
+  const [isMyMessageSent, setIsMyMessageSent] = useState(false);
+  const [isInitialLoad, setIsInitialLoad] = useState(true); // 처음 로드 여부
+  const [appState, setAppState] = useState(AppState.currentState);
+
+  const fetchChatting = useCallback(async (roomId, lastTimestamp, isRefresh = "false") => {
+    try {
+      const token = await AsyncStorage.getItem('userToken');
+      if (!token) {
+        Alert.alert("다시 로그인 해주세요.");
+        navigation.navigate("LoginScreen"); // 로그인 화면으로 이동
+        return;
+      }
+
+      const response = await fetch(`${API_URL}/api/userChatRooms/fetchChatting?roomId=${roomId}&lastTimestamp=${lastTimestamp}&isRefresh=${isRefresh}`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`, // JWT 추가
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json(); // JSON 응답 처리
+        setData2(data);
+        console.log(data);
+        // 다음 요청에서 사용할 lastTimestamp 저장
+        if (data.chatting[0].nextTimestamp) {
+          setLastTimestamp(data.chatting[0].nextTimestamp);
+        }
+        // `isEndOfData`가 true이면 더 이상 데이터를 불러오지 않음
+        if (data.chatting[0].nextTimestamp == null) {
+          setIsEndOfData(true); // 데이터를 끝까지 불러왔음을 설정
+        } else {
+          setIsEndOfData(false); // 데이터가 더 있음
+        }
+
+        if (data.chatting.length > 0) {
+          setMyUserId(data.chatting[0].myId);
+          // 데이터를 최신 메시지 순으로 정렬
+          data.chatting.sort(
+            (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
+          );
+
+          if (isRefresh === "true") {
+            // 새로고침인 경우 기존 채팅을 초기화하고 새 데이터를 추가
+            setChatting((prevChatting) => [...prevChatting, ...data.chatting]);
+          } else {
+            // 새로 받은 채팅 데이터를 기존 데이터 뒤에 추가
+            setChatting((prevChatting) => [...prevChatting, ...data.chatting]);
+          }
+        } else {
+          setChatting([]); // 빈 배열 설정
+          Alert.alert("채팅 내역이 없습니다.");
+        }
+      } else if (response.status === 401) {
+        Alert.alert("다시 로그인 해주세요.");
+        navigation.navigate("LoginScreen"); // 로그인 화면으로 이동
+        return;
+      } else {
+        console.error('Failed to fetch chatting');
+        Alert.alert("오류", "채팅 내역을 가져오는 중 문제가 발생했습니다.");
+      }
+    }
+    catch (error) {
+      console.error('Error fetching chatting:', error);
+      Alert.alert("오류", "채팅 내역을 가져오는 중 문제가 발생했습니다.");
+    }
+    finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [API_URL, navigation]);
+
+  useEffect(() => {
+    if (roomId) {
+      if (!isEndOfData && !data2) {
+        setLoading(true);
+        fetchChatting(roomId, lastTimestamp); // roomId와 lastTimestamp를 기준으로 데이터 요청
+      }
+    }
+  }, [roomId, isEndOfData, data2, fetchChatting, lastTimestamp]);
+
+  useEffect(() => {
+    // 데이터 로드가 완료되고 처음 로드 시에만 실행
+    if (!loading && chatting.length > 0 && isInitialLoad) {
+      setTimeout(() => {
+        flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+      }, 100); // 약간의 지연 추가
+      setIsInitialLoad(false); // 플래그 업데이트
+    }
+  }, [loading, chatting, isInitialLoad]);
+
+  useEffect(() => {
+    if (youData && !roomId) {
+      setRoomId(youData.roomId); // roomId 상태가 null일 때만 설정
+    }
+  }, [youData, roomId]);
+
+  // 새로고침 기능
+  const onRefresh = useCallback(() => {
+    if (isEndOfData) {
+      // 데이터가 끝까지 불러와졌으면 새로고침 동작하지 않도록
+      setRefreshing(false); // 새로고침 상태 리셋
+      return;
+    }
+    else {
+      setRefreshing(true);
+      fetchChatting(roomId, lastTimestamp, "false"); // 게시글 불러오기
+    }
+  }, [roomId, lastTimestamp, isEndOfData, fetchChatting]);
+
+  const getRecipientId = (roomId, myId) => {
+    if (!roomId || !myId) {
+      console.error('roomId 또는 myId가 유효하지 않습니다.');
+      return null;
+    }
+
+    // 정규 표현식을 사용하여 'room_<id1>_<id2>' 형식 검증 및 추출
+    const regex = /^room_(\d+)_(\d+)$/;
+    const match = roomId.match(regex);
+
+    if (!match) {
+      console.error('roomId 형식이 올바르지 않습니다.');
+      return null;
+    }
+
+    const id1 = match[1];
+    const id2 = match[2];
+
+    const myIdStr = String(myId); // myId를 문자열로 변환
+
+    if (id1 === myIdStr) {
+      return id2;
+    } else if (id2 === myIdStr) {
+      return id1;
+    } else {
+      console.error('roomId에 myId가 포함되어 있지 않습니다.');
+      return null;
+    }
+  };
+
+  useEffect(() => {
+    const handleAppStateChange = (nextAppState) => {
+      console.log(`App State changed to: ${nextAppState}`);
+      setAppState(nextAppState);
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
+  // 메시지 전송 함수
+  const sendMessage = useCallback(() => {
+    if (inputText.trim() === '') return;
+    if (inputText.trim().length > 500) {
+      Alert.alert("메시지가 너무 깁니다.");
+      return;
+    }
+
+    if (!getRecipientId(roomId, myUserId)) {
+      Alert.alert("수신자 정보를 찾을 수 없습니다.");
+      return;
+    }
+
+    const newMessage = {
+      senderId: String(myUserId), // myUserId를 문자열로 변환
+      roomId: roomId,
+      recipientId: String(getRecipientId(roomId, myUserId)), // recipientId도 문자열로 설정
+      messageContent: inputText,
+      timestamp: new Date().getTime(), // epoch milliseconds
+    };
+
+    // WebSocket을 통해 메시지 전송
+    if (clientRef.current && clientRef.current.connected) {
+      clientRef.current.publish({
+        destination: '/app/postMessage', // 서버의 @MessageMapping 경로
+        body: JSON.stringify(newMessage),
+      });
+    } else {
+      Alert.alert("연결이 끊어졌습니다. 다시 시도해주세요.");
+      return;
+    }
+    setChatting((prevChatting) => [newMessage, ...prevChatting]);
+    setIsMyMessageSent(true); // 내가 보낸 메시지임을 설정
+    setInputText('');
+  }, [inputText, myUserId, roomId]);
+
+  useEffect(() => {
+    if (!roomId || !myUserId) return;
+    console.log(myUserId);
+    const client = new Client({
+      webSocketFactory: () => new SockJS(`${API_URL}/ws?roomId=${roomId}&userId=${myUserId}`),
+      debug: (str) => {
+        //console.log('STOMP Debug:', str);
+      },
+      reconnectDelay: 5000,
+      onConnect: () => {
+        console.log('WebSocket 연결 성공!:', myUserId);
+        setConnectionStatus('Connected');
+        client.subscribe(`/topic/chatroom/${roomId}`, (message) => {
+          const receivedMessage = JSON.parse(message.body); // 서버에서 보낸 메시지 파싱
+          // 로컬 상태 업데이트
+          if (receivedMessage.senderId === String(myUserId)) {
+            // 내가 보낸 메시지는 이미 처리됨
+          } else {
+            setChatting((prevChatting) => [receivedMessage, ...prevChatting]);
+          }
+        });
+      },
+
+      onStompError: (frame) => {
+        console.error('Broker reported error: ' + frame.headers['message']);
+        setConnectionStatus('Connection Error');
+      },
+      onWebSocketClose: () => {
+        console.log('WebSocket 연결 종료');
+        setConnectionStatus('Disconnected');
+      },
+    });
+
+    // WebSocket 활성화
+    client.activate();
+    clientRef.current = client;
+
+    // 컴포넌트 언마운트 시 WebSocket 비활성화
+    return () => {
+      if (clientRef.current) {
+        clientRef.current.deactivate();
+      }
+    };
+  }, [roomId, myUserId, API_URL]);
+
+  // useEffect로 메시지 전송 후 스크롤
+  useEffect(() => {
+    if (isMyMessageSent) {
+      setTimeout(() => {
+        flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+      }, 100); // 약간의 지연 추가
+      setIsMyMessageSent(false); // 플래그 초기화
+    }
+  }, [isMyMessageSent]);
+
+
+
+  const renderItem = useCallback(({ item, index }) => (
+    <MessageItem
+      item={item}
+      index={index}
+      chatting={chatting}
+      chattingLength={chatting.length}
+      isEndOfData={isEndOfData}
+      myUserId={myUserId}
+      youData={youData}
+    />
+  ), [chatting, myUserId, youData, isEndOfData]);
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#FF6B6B" />
+        <Text>로딩 중...</Text>
+      </View>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.container}>
+      {/* 헤더 */}
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+        >
+          <Ionicons name="chevron-back" size={28} color="#000" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>{youData.nickname}</Text>
+
+        <TouchableOpacity
+          style={styles.moreButton}
+          onPress={() => Alert.alert('버튼입니다')}
+        >
+          <Image
+            source={require('../assets/images/moreImage.png')}
+            style={styles.moreIcon}
+          />
+        </TouchableOpacity>
+      </View>
+
+      {/* 메시지 리스트 */}
+      <FlatList
+        ref={flatListRef} // FlatList에 참조 연결
+        data={chatting}
+        renderItem={renderItem}
+        keyExtractor={(item, index) => `${item.senderId}-${item.timestamp}-${index}`} // 고유한 key 생성
+        contentContainerStyle={styles.messagesList}
+        initialNumToRender={30}
+        maxToRenderPerBatch={30}
+        removeClippedSubviews={true}
+        windowSize={21}
+        onEndReached={onRefresh}
+        onEndReachedThreshold={0.1}
+        inverted
+      />
+
+      {/* 입력 영역 */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0} // iOS에서 키보드 높이 보정
+      >
+        <View style={styles.inputContainer}>
+          <TextInput
+            style={styles.textInput}
+            placeholder="메시지를 입력하세요."
+            value={inputText}
+            onChangeText={setInputText}
+            multiline
+          />
+          <TouchableOpacity style={styles.sendButton} onPress={sendMessage}>
+            <Text style={styles.sendButtonText}>전송</Text>
+          </TouchableOpacity>
+        </View>
+        {/* 아래에 여백 추가 */}
+        <View style={styles.bottomSpacing} />
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+  
+}
+
+const styles = StyleSheet.create({
+  // 날짜 구분자 스타일
+  dateSeparator: {
+    alignSelf: 'center', // 중앙 정렬
+    backgroundColor: '#f0f0f0', // 배경색
+    borderRadius: 20, // 둥근 모서리
+    paddingVertical: 5,
+    paddingHorizontal: 15,
+    marginVertical: 10, // 위아래 여백
+  },
+  dateText: {
+    fontSize: 14,
+    color: '#555',
+    fontWeight: 'bold',
+  },
+  container: {
+    flex: 1,
+    backgroundColor: '#fff', // 배경 흰색으로 변경
+  },
+  header: {
+    height: Platform.OS === 'ios' ? 70 : 60, // 헤더 높이 줄이기
+    backgroundColor: '#fff', // 헤더 배경 흰색
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: Platform.OS === 'ios' ? 30 : 0, // iOS 상태바 고려
+    borderBottomWidth: 1,
+    borderBottomColor: '#ddd',
+    // paddingHorizontal: 15, // 필요 시 추가
+  },
+  backButton: {
+    width: 40, // 버튼 크기 조정
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerTitle: {
+    flex: 1, // 중앙 정렬을 위해 flex 설정
+    fontSize: 18,
+    color: '#000', // 헤더 타이틀 색상
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  moreButton: {
+    width: 40, // 버튼 크기 조정
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  moreIcon: {
+    width: 24,
+    height: 24,
+    resizeMode: 'contain',
+  },
+  messagesList: {
+    paddingHorizontal: 10,
+    paddingBottom: 10,
+  },
+  messageRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginVertical: 5,
+  },
+  myRow: {
+    justifyContent: 'flex-end',
+  },
+  otherRow: {
+    justifyContent: 'flex-start',
+  },
+  profileImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 5,
+  },
+  messageContainer: {
+    maxWidth: '70%',
+  },
+  myMessageContainer: {
+    alignItems: 'flex-end',
+    marginLeft: 'auto',
+  },
+  otherMessageContainer: {
+    alignItems: 'flex-start',
+  },
+  nickname: {
+    fontSize: 12,
+    color: '#555',
+    marginBottom: 2,
+    marginLeft: 10, // 닉네임을 약간 오른쪽으로 이동
+  },
+  bubbleAndTime: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+  },
+  messageBubble: {
+    padding: 10,
+    borderRadius: 10,
+  },
+  myMessage: {
+    backgroundColor: '#cce5ff', // 내 채팅 색상 변경 (연한 파란색)
+    borderBottomRightRadius: 0,
+    marginLeft: 5,
+  },
+  otherMessage: {
+    backgroundColor: '#f1f0f0', // 상대방 채팅 색상 변경 (연한 회색)
+    borderBottomLeftRadius: 0,
+    marginRight: 5,
+  },
+  messageText: {
+    fontSize: 16,
+    color: '#000',
+  },
+  messageTime: {
+    fontSize: 12,
+    color: '#555',
+  },
+  myMessageTime: {
+    marginRight: 5,
+  },
+  otherMessageTime: {
+    marginLeft: 5,
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 10,
+    paddingVertical: 10, // 패딩을 늘려 입력 영역 높이 증가
+    alignItems: 'center',
+    backgroundColor: '#fff',
+  },
+  textInput: {
+    flex: 1,
+    borderColor: '#ddd',
+    borderWidth: 1,
+    borderRadius: 25,
+    paddingHorizontal: 15,
+    paddingVertical: 10, // 패딩을 늘려 입력 필드 높이 증가
+    marginRight: 10,
+    backgroundColor: '#fff',
+    maxHeight: 100, // 최대 높이 제한 (멀티라인 입력 시)
+  },
+  sendButton: {
+    backgroundColor: '#FF6B6B',
+    borderRadius: 25,
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+  },
+  sendButtonText: {
+    color: '#fff',
+    fontSize: 16,
+  },
+  bottomSpacing: {
+    height: Platform.OS === 'ios' ? 30 : 0,
+    backgroundColor: '#fff',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+});

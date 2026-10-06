@@ -1,0 +1,17 @@
+{
+  "migIndex": 1,
+  "data": [
+    {
+      "path": "assets/fonts/SpaceMono-Regular.ttf",
+      "sha1": "fae3a5a43b50e0408fd61e14383d94a023d332b0"
+    },
+    {
+      "path": "assets/fonts/TmoneyRoundWindExtraBold.ttf",
+      "sha1": "239f22590abed8a518ba99d9093e4c26fdbfe677"
+    },
+    {
+      "path": "assets/fonts/TmoneyRoundWindRegular.ttf",
+      "sha1": "ad5e22eef228daed167e1f6ee87617c7ad8de554"
+    }
+  ]
+}

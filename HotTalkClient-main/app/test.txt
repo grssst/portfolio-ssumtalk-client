@@ -1,0 +1,279 @@
+//필터 공중에 떠있는 핑크색 코드인데 임시로 저장함
+
+
+import React, { useState } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Dimensions, Modal } from 'react-native';
+import MultiSlider from '@ptomasroos/react-native-multi-slider';
+import colors from './styles/colors';
+
+const { width, height } = Dimensions.get('window');
+
+export default function FilterBar({ applyFilters }) {
+  const [ageRange, setAgeRange] = useState([19, 100]); // 나이 범위 초기값
+  const [gender, setGender] = useState('all'); // 성별 필터: all, male, female
+  const [sortOrder, setSortOrder] = useState('distance'); // 정렬 순서: distance, recent
+  const [showModal, setShowModal] = useState(false); // 필터 모달 표시 상태
+
+  const handleApplyFilters = () => {
+    applyFilters({ ageRange, gender, sortOrder });
+    setShowModal(false);
+  };
+
+  return (
+    <>
+      {/* 필터 버튼 */}
+      <TouchableOpacity
+        style={styles.filterButton}
+        onPress={() => setShowModal(true)}
+      >
+        <Text style={styles.filterButtonText}>필터</Text>
+      </TouchableOpacity>
+
+      {/* 필터 모달 */}
+      <Modal
+        visible={showModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowModal(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>필터 설정</Text>
+
+            {/* 나이 필터 */}
+            <View style={styles.filterSection}>
+              <Text style={styles.filterLabel}>나이 범위</Text>
+              <MultiSlider
+                values={ageRange}
+                sliderLength={width * 0.8}
+                onValuesChange={setAgeRange}
+                min={19}
+                max={100}
+                step={1}
+                selectedStyle={{ backgroundColor: colors.main }}
+                markerStyle={styles.sliderMarker}
+              />
+              <Text style={styles.filterValue}>
+                {ageRange[0]}세 - {ageRange[1]}세
+              </Text>
+            </View>
+
+            {/* 성별 필터 */}
+            <View style={styles.filterSection}>
+              <Text style={styles.filterLabel}>성별</Text>
+              <View style={styles.genderButtons}>
+                <TouchableOpacity
+                  style={[
+                    styles.genderButton,
+                    gender === 'all' && styles.genderButtonActive,
+                  ]}
+                  onPress={() => setGender('all')}
+                >
+                  <Text
+                    style={[
+                      styles.genderButtonText,
+                      gender === 'all' && styles.genderButtonTextActive,
+                    ]}
+                  >
+                    전체
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.genderButton,
+                    gender === 'male' && styles.genderButtonActive,
+                  ]}
+                  onPress={() => setGender('male')}
+                >
+                  <Text
+                    style={[
+                      styles.genderButtonText,
+                      gender === 'male' && styles.genderButtonTextActive,
+                    ]}
+                  >
+                    남자
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.genderButton,
+                    gender === 'female' && styles.genderButtonActive,
+                  ]}
+                  onPress={() => setGender('female')}
+                >
+                  <Text
+                    style={[
+                      styles.genderButtonText,
+                      gender === 'female' && styles.genderButtonTextActive,
+                    ]}
+                  >
+                    여자
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* 정렬 필터 */}
+            <View style={styles.filterSection}>
+              <Text style={styles.filterLabel}>정렬 기준</Text>
+              <View style={styles.sortToggle}>
+                <TouchableOpacity
+                  style={[
+                    styles.sortOption,
+                    sortOrder === 'distance' && styles.sortOptionActive,
+                  ]}
+                  onPress={() => setSortOrder('distance')}
+                >
+                  <Text
+                    style={[
+                      styles.sortOptionText,
+                      sortOrder === 'distance' && styles.sortOptionTextActive,
+                    ]}
+                  >
+                    거리순
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.sortOption,
+                    sortOrder === 'recent' && styles.sortOptionActive,
+                  ]}
+                  onPress={() => setSortOrder('recent')}
+                >
+                  <Text
+                    style={[
+                      styles.sortOptionText,
+                      sortOrder === 'recent' && styles.sortOptionTextActive,
+                    ]}
+                  >
+                    최신순
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* 적용 버튼 */}
+            <TouchableOpacity
+              style={styles.applyButton}
+              onPress={handleApplyFilters}
+            >
+              <Text style={styles.applyButtonText}>적용하기</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </>
+  );
+}
+
+const styles = StyleSheet.create({
+  filterButton: {
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
+    backgroundColor: colors.main,
+    padding: 15,
+    borderRadius: 50,
+    elevation: 5,
+  },
+  filterButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalContent: {
+    width: '90%',
+    padding: 20,
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    elevation: 10,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  filterSection: {
+    marginBottom: 20,
+  },
+  filterLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  filterValue: {
+    fontSize: 14,
+    color: '#555',
+    marginTop: 5,
+  },
+  sliderMarker: {
+    height: 20,
+    width: 20,
+    backgroundColor: colors.main,
+    borderRadius: 10,
+  },
+  genderButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  genderButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#ccc',
+  },
+  genderButtonActive: {
+    backgroundColor: colors.main,
+    borderColor: colors.main,
+  },
+  genderButtonText: {
+    fontSize: 14,
+    color: '#333',
+  },
+  genderButtonTextActive: {
+    color: '#fff',
+  },
+  sortToggle: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+  },
+  sortOption: {
+    paddingVertical: 10,
+    paddingHorizontal: 30,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#ccc',
+  },
+  sortOptionActive: {
+    backgroundColor: colors.main,
+    borderColor: colors.main,
+  },
+  sortOptionText: {
+    fontSize: 14,
+    color: '#333',
+  },
+  sortOptionTextActive: {
+    color: '#fff',
+  },
+  applyButton: {
+    marginTop: 20,
+    backgroundColor: colors.main,
+    paddingVertical: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  applyButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+});
