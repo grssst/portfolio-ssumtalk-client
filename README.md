@@ -34,14 +34,16 @@
 
 ### Client
 
-| 기술                      | 사용 목적                   |
-| ----------------------- | ----------------------- |
-| React Native            | 모바일 애플리케이션 개발           |
-| Expo                    | React Native 개발 및 빌드 환경 |
-| Expo Router             | 파일 기반 화면 및 네비게이션 구성     |
-| JavaScript | 클라이언트 개발                |
+| 기술                    | 사용 목적                     |
+| ----------------------- | ------------------------------- |
+| React Native            | 모바일 애플리케이션 개발          |
+| Expo, Bare Workflow     | React Native 개발 및 빌드 환경   |
+| React Navigation        | 화면 전환 및 네비게이션           |
+| React Hooks             | 컴포넌트 상태 및 생명주기 관리     |
+| useMemo, useCallback, React.memo  | 불필요한 렌더링 최소화 및 성능 최적화   |
+| JavaScript              | 클라이언트 개발                  |
 | React Native Reanimated | 애니메이션 및 UI 인터랙션         |
-| AsyncStorage            | 로컬 데이터 저장               |
+| AsyncStorage            | 로컬 데이터 저장                  |
 
 ### Backend / Infrastructure
 
